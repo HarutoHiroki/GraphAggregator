@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Sign up via the form
+    url: https://graphaggregator.harutohiroki.com
+    about: Use the signup form to register your graph-tool site. It will create the issue for you with the correct format.
+  - name: Report a bug in GraphAggregator itself
+    url: https://github.com/HarutoHiroki/GraphAggregator/issues/new?template=bug.md
+    about: Something wrong with the aggregator, the form, or the workflows.
