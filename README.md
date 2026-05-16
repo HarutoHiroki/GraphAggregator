@@ -98,7 +98,7 @@ Set as environment variables on the build step (both are optional opt in and jus
 
 The client fetches `aggregate-index.json` once per session (cached in `localStorage` for 1 hour). On every keystroke in the existing `input.search`, it filters the entire corpus and renders every match.
 
-### squigsites federated by default
+### squigsites aggregated by default
 
 The aggregator's build workflow runs `build-aggregate.mjs --squigsites https://squig.link/squigsites.json` on every deploy, so every site in the centralized `squigsites.json` is mirrored into the aggregate alongside federated entries. The client labels squigsites-sourced rows with a small `squigsites` tag in the site header so you can tell them apart, but otherwise they're treated identically.
 
@@ -113,9 +113,7 @@ You can override the aggregator origin (useful for self-hosted forks):
 
 The script uses the host page's CSS variables (`--background-color-contrast`, `--accent-color`, `--font-color-primary`, etc.) when present and falls back to neutral defaults otherwise.
 
-## GitHub repo setup (one-time)
-
-These are GitHub-side knobs that can't be configured from inside the repo.
+## GitHub repo setup (one-time, if you want to self host this)
 
 ### Workflow permissions
 
