@@ -1,1 +1,18 @@
-[]
+[
+  {
+    "id": "harutohiroki",
+    "github": "HarutoHiroki",
+    "name": "HarutoHiroki",
+    "url": "https://graphtool.harutohiroki.com",
+    "dbs": [
+      {
+        "id": "harutohiroki:iems:clone-711-iem",
+        "siteId": "harutohiroki",
+        "rig": "clone-711-iem",
+        "type": "IEMs",
+        "phoneBookUrl": "https://graphtool.harutohiroki.com/phone_book.json",
+        "deltaReady": true
+      }
+    ]
+  }
+]
