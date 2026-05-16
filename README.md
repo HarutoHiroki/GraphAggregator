@@ -50,7 +50,7 @@ A daily scheduled workflow (`health-check.yml`, 12:00 UTC) tests every registere
 1. `aggregator_verify.txt` at the site root must still serve the GitHub username.
 2. Every declared `phoneBookUrl` must still return a 200 and a valid phone_book.
 
-Behaviour:
+Behavior:
 
 - **First failure:** the bot files a `[health]` tracking issue tagging the owner with the list of failing endpoints and the auto-removal deadline.
 - **Subsequent failures (below the threshold):** the original issue stays open, no new comments.
@@ -73,10 +73,6 @@ If your site is no longer reachable, the verify-file check will fail. Restore th
 
 Removal issues are tagged with the `removal` label so they're easy to filter in the issues list.
 
-## Submitting via GitHub when the popup is blocked
-
-The form opens a pre-filled GitHub issue in a new tab via `window.open`. If your browser blocks popups for the aggregator domain, the form renders a clickable fallback link instead so you can complete the submission with a normal anchor click.
-
 ## Issues opened without using the form
 
 The validate workflow handles bad-format issues on its own: if the issue body doesn't contain a valid signup/removal payload between the `<!-- signup-payload -->` markers, the bot leaves a comment pointing the submitter at the official form and closes the issue with an `invalid-format` label.
@@ -90,7 +86,7 @@ Set as environment variables on the build step (both are optional opt in and jus
 
 ## Consuming the aggregate from your site
 
-`graphAggregator.js` is the full replacement for `squigsites.js` (and the modified bandaid version of it). One script tag gives you the squig-select dropdown, federated search, intro/shoplinks loaders, delta target mods, and the cachebust cookie. All the original stuff, minus the ads, plus the federated index plumbing.
+`graphAggregator.js` is the full replacement for `squigsites.js` (and my modified bandaid version of it). One script tag gives you the squig-select dropdown, federated search, delta target mods, and the cachebust cookie. All the original stuff, minus the ads, plus the federation.
 
 ```html
 <script src="https://graphaggregator.harutohiroki.com/graphAggregator.js" defer></script>
