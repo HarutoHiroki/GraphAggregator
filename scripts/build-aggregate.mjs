@@ -82,23 +82,58 @@ function pushPhone(dbId, brand, phoneName, share) {
   phoneRows.push(row);
 }
 
+// Trims a JSON-stringified value so a log line stays readable.
+function preview(v) {
+  if (v === undefined) return '(missing)';
+  let s;
+  try { s = JSON.stringify(v); } catch { s = String(v); }
+  if (s.length > 80) s = s.slice(0, 77) + '...';
+  return s;
+}
+
 // Walks a brand's phones array, extracts what's usable, and pushes one row
 // per phone. Skips entries that don't have at least a name and a share
-// source. Counts skips so the caller can log them.
+// source. Returns the skips with enough context that the caller's log
+// pinpoints which phone is malformed and why.
 function ingestBrand(dbId, brand) {
-  let added = 0, skipped = 0;
-  if (!brand || typeof brand.name !== 'string' || !Array.isArray(brand.phones)) {
-    return { added, skipped };
+  let added = 0;
+  const skips = [];
+
+  if (!brand || typeof brand !== 'object') {
+    return { added, skips: [{ where: '(brand)', reason: 'brand entry is not an object', detail: preview(brand) }] };
   }
-  for (const phone of brand.phones) {
-    if (!phone || typeof phone !== 'object') { skipped++; continue; }
+  if (typeof brand.name !== 'string') {
+    return { added, skips: [{ where: '(brand)', reason: 'brand.name is missing or not a string', detail: preview(brand.name) }] };
+  }
+  if (!Array.isArray(brand.phones)) {
+    return { added, skips: [{ where: brand.name, reason: 'phones is not an array', detail: preview(brand.phones) }] };
+  }
+
+  for (let pi = 0; pi < brand.phones.length; pi++) {
+    const phone = brand.phones[pi];
+    const where = `${brand.name}.phones[${pi}]`;
+    if (!phone || typeof phone !== 'object') {
+      skips.push({ where, reason: 'phone is not an object', detail: preview(phone) });
+      continue;
+    }
     const phoneName = extractPhoneName(phone);
     const share = extractShare(phone);
-    if (!phoneName || !share) { skipped++; continue; }
+    if (!phoneName && !share) {
+      skips.push({ where, reason: 'no usable name and no usable file/hptfs', detail: preview({ name: phone.name, file: phone.file, hptfs: phone.hptfs }) });
+      continue;
+    }
+    if (!phoneName) {
+      skips.push({ where, reason: 'missing or unusable name', detail: 'name=' + preview(phone.name) + ' file=' + preview(phone.file ?? phone.hptfs) });
+      continue;
+    }
+    if (!share) {
+      skips.push({ where, reason: 'missing or unusable file/hptfs', detail: 'name=' + preview(phoneName) });
+      continue;
+    }
     pushPhone(dbId, brand.name, phoneName, share);
     added++;
   }
-  return { added, skipped };
+  return { added, skips };
 }
 
 async function fetchPhoneBook(url) {
@@ -142,12 +177,17 @@ async function ingestRegistryEntry(entry) {
       deltaReady: !!db.deltaReady
     });
 
-    let totalSkipped = 0;
+    const allSkips = [];
     for (const brand of phoneBook) {
-      const { skipped } = ingestBrand(dbId, brand);
-      totalSkipped += skipped;
+      const { skips } = ingestBrand(dbId, brand);
+      for (const s of skips) allSkips.push(s);
     }
-    if (totalSkipped) console.error(`${dbId}: skipped ${totalSkipped} malformed phone entries`);
+    if (allSkips.length) {
+      console.error(`${dbId}: skipped ${allSkips.length} malformed phone entries:`);
+      for (const s of allSkips) {
+        console.error(`  - ${s.where}: ${s.reason} | ${s.detail}`);
+      }
+    }
   }
 }
 
@@ -205,12 +245,17 @@ if (SQUIGSITES_URL) {
           deltaReady: db.deltaReady === true || db.deltaReady === 'true',
           source: 'squigsites'
         });
-        let totalSkipped = 0;
+        const allSkips = [];
         for (const brand of phoneBook) {
-          const { skipped } = ingestBrand(dbId, brand);
-          totalSkipped += skipped;
+          const { skips } = ingestBrand(dbId, brand);
+          for (const s of skips) allSkips.push(s);
         }
-        if (totalSkipped) console.error(`squigsites ${dbId}: skipped ${totalSkipped} malformed phone entries`);
+        if (allSkips.length) {
+          console.error(`squigsites ${dbId}: skipped ${allSkips.length} malformed phone entries:`);
+          for (const s of allSkips) {
+            console.error(`  - ${s.where}: ${s.reason} | ${s.detail}`);
+          }
+        }
       }
     }
   } catch (e) {
