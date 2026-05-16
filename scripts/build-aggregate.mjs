@@ -41,9 +41,33 @@ function brandIdx(name) {
   return i;
 }
 
-function shareFromFile(file) {
-  const f = Array.isArray(file) ? file[0] : file;
-  return String(f).replace(/ /g, '_');
+// Pull a usable display name out of a phone entry. Some authors use
+// name: "X" (the original convention), others wrap it as name: ["X"], and
+// the rare entry has no name at all (typo).
+function extractPhoneName(p) {
+  if (typeof p?.name === 'string' && p.name.length) return p.name;
+  if (Array.isArray(p?.name) && typeof p.name[0] === 'string' && p.name[0].length) return p.name[0];
+  return null;
+}
+
+// Pull a share filename out of a phone entry. Accepts:
+//   - file: "X"           (original convention)
+//   - file: ["X", "Y"]    (variants, share param is the first)
+//   - hptfs: [{ files: ["X", ...] }]  (god damn it @potatosalad775 i gotta do this just for you)
+function extractShare(p) {
+  if (typeof p?.file === 'string' && p.file.length) {
+    return p.file.replace(/ /g, '_');
+  }
+  if (Array.isArray(p?.file) && typeof p.file[0] === 'string' && p.file[0].length) {
+    return p.file[0].replace(/ /g, '_');
+  }
+  if (Array.isArray(p?.hptfs) && p.hptfs.length) {
+    const h = p.hptfs[0];
+    if (h && Array.isArray(h.files) && typeof h.files[0] === 'string' && h.files[0].length) {
+      return h.files[0].replace(/ /g, '_');
+    }
+  }
+  return null;
 }
 
 function derivedShare(brand, name) {
@@ -56,6 +80,25 @@ function pushPhone(dbId, brand, phoneName, share) {
     row.s = share;
   }
   phoneRows.push(row);
+}
+
+// Walks a brand's phones array, extracts what's usable, and pushes one row
+// per phone. Skips entries that don't have at least a name and a share
+// source. Counts skips so the caller can log them.
+function ingestBrand(dbId, brand) {
+  let added = 0, skipped = 0;
+  if (!brand || typeof brand.name !== 'string' || !Array.isArray(brand.phones)) {
+    return { added, skipped };
+  }
+  for (const phone of brand.phones) {
+    if (!phone || typeof phone !== 'object') { skipped++; continue; }
+    const phoneName = extractPhoneName(phone);
+    const share = extractShare(phone);
+    if (!phoneName || !share) { skipped++; continue; }
+    pushPhone(dbId, brand.name, phoneName, share);
+    added++;
+  }
+  return { added, skipped };
 }
 
 async function fetchPhoneBook(url) {
@@ -99,11 +142,12 @@ async function ingestRegistryEntry(entry) {
       deltaReady: !!db.deltaReady
     });
 
+    let totalSkipped = 0;
     for (const brand of phoneBook) {
-      for (const phone of brand.phones || []) {
-        pushPhone(dbId, brand.name, phone.name, shareFromFile(phone.file));
-      }
+      const { skipped } = ingestBrand(dbId, brand);
+      totalSkipped += skipped;
     }
+    if (totalSkipped) console.error(`${dbId}: skipped ${totalSkipped} malformed phone entries`);
   }
 }
 
@@ -161,11 +205,12 @@ if (SQUIGSITES_URL) {
           deltaReady: db.deltaReady === true || db.deltaReady === 'true',
           source: 'squigsites'
         });
+        let totalSkipped = 0;
         for (const brand of phoneBook) {
-          for (const phone of brand.phones || []) {
-            pushPhone(dbId, brand.name, phone.name, shareFromFile(phone.file));
-          }
+          const { skipped } = ingestBrand(dbId, brand);
+          totalSkipped += skipped;
         }
+        if (totalSkipped) console.error(`squigsites ${dbId}: skipped ${totalSkipped} malformed phone entries`);
       }
     }
   } catch (e) {
@@ -173,7 +218,7 @@ if (SQUIGSITES_URL) {
   }
 }
 
-// Optional Tier 3: collapse identical (brand, name) rows into one with `m[]`.
+// Tier 3: collapse identical (brand, name) rows into one with `m[]`.
 // Trades a normalized lookup for a flatter, smaller list. Consumers branch on
 // `phonesFormat`.
 let phones, phonesFormat;
