@@ -99,7 +99,7 @@
   function loadJquery(onLoad) {
     if (typeof window.jQuery === 'function') { onLoad(); return; }
     const local = 'https://graphaggregator.harutohiroki.com/assets/jquery-4.0.0.min.js';
-    const fallback = 'https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js';
+    const fallback = 'https://code.jquery.com/jquery-4.0.0.min.js';
     const tryLoad = (src, next) => {
       const s = document.createElement('script');
       s.src = src;
