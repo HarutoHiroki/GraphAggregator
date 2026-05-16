@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>GraphAggregator Sign Up</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <main>
+    <header>
+      <h1>GraphAggregator</h1>
+      <p class="lede">
+        Register your phone_book site to the federated search index.
+        <a href="https://github.com/HarutoHiroki/GraphAggregator#readme" target="_blank" rel="noopener">How this works</a>.
+      </p>
+    </header>
+
+    <form id="signup" autocomplete="off">
+      <fieldset>
+        <legend>Identity</legend>
+        <label>
+          GitHub username
+          <input type="text" name="github" required pattern="[a-zA-Z0-9](?:[a-zA-Z0-9]|-(?=[a-zA-Z0-9])){0,38}" placeholder="e.g. HarutoHiroki">
+        </label>
+        <p class="hint">
+          No GitHub account? <a href="https://github.com/signup" target="_blank" rel="noopener">Create one (opens new tab)</a>.
+        </p>
+      </fieldset>
+
+      <fieldset>
+        <legend>Site</legend>
+        <label>
+          Display name
+          <input type="text" name="name" required placeholder="e.g. HarutoHiroki">
+        </label>
+        <label>
+          Site root URL
+          <input type="url" name="url" required placeholder="https://graphtool.harutohiroki.com">
+        </label>
+        <div class="verify-row">
+          <button type="button" id="check-verify-file">Check <code>aggregator_verify.txt</code></button>
+          <span id="verify-file-status" class="status">not checked</span>
+        </div>
+        <p class="hint">
+          Place a file named <code>aggregator_verify.txt</code> at the root of your site,
+          containing exactly your GitHub username. Example URL:
+          <code id="verify-file-example">https://&lt;your-site&gt;/aggregator_verify.txt</code>
+        </p>
+      </fieldset>
+
+      <fieldset>
+        <legend>Databases</legend>
+        <p class="hint">Up to <span id="cap-display">...</span> databases.</p>
+        <div id="dbs"></div>
+        <button type="button" id="add-db">+ Add database</button>
+      </fieldset>
+
+      <div class="actions">
+        <button type="submit" id="submit" disabled>Submit via GitHub</button>
+        <p id="submit-hint" class="hint">Verify your site file and every phone_book URL to enable submission.</p>
+        <p id="submit-fallback" class="status err" style="display:none"></p>
+      </div>
+    </form>
+
+    <details class="preview">
+      <summary>Preview entry JSON</summary>
+      <pre id="entry-json"></pre>
+    </details>
+
+    <details class="danger-zone">
+      <summary>Remove your entry from the registry</summary>
+      <form id="remove-form" autocomplete="off">
+        <p class="hint">
+          Removes your existing entry from the registry. Requires the same identity proofs as signing up:
+          the removal issue must be opened from your GitHub account, and <code>aggregator_verify.txt</code>
+          on your site root must still match your GitHub username.
+        </p>
+        <label>
+          GitHub username
+          <input type="text" name="github" required pattern="[a-zA-Z0-9](?:[a-zA-Z0-9]|-(?=[a-zA-Z0-9])){0,38}" placeholder="e.g. HarutoHiroki">
+        </label>
+        <label>
+          Site root URL
+          <input type="url" name="url" required placeholder="https://graphtool.harutohiroki.com">
+        </label>
+        <div class="verify-row">
+          <button type="button" id="remove-check-verify">Check <code>aggregator_verify.txt</code></button>
+          <span id="remove-verify-status" class="status">not checked</span>
+        </div>
+        <div class="actions">
+          <button type="submit" id="remove-submit" disabled>Submit removal request</button>
+          <p id="remove-submit-hint" class="hint">Verify your site file to enable submission.</p>
+          <p id="remove-submit-fallback" class="status err" style="display:none"></p>
+        </div>
+      </form>
+    </details>
+  </main>
+
+  <template id="db-row-template">
+    <div class="db-row">
+      <label>
+        Rig
+        <select name="rig"></select>
+      </label>
+      <label>
+        Type
+        <select name="type"></select>
+      </label>
+      <label class="grow">
+        phone_book URL
+        <input type="url" name="phoneBookUrl" required placeholder="https://your-site/data/phone_book.json">
+      </label>
+      <label class="inline" title="Tick if this database has a delta target build specifically for the selected rig.">
+        <input type="checkbox" name="deltaReady">
+        delta-ready
+      </label>
+      <div class="verify-row">
+        <button type="button" class="check-phonebook">Verify</button>
+        <span class="status">not checked</span>
+        <button type="button" class="remove-db" title="Remove">×</button>
+      </div>
+    </div>
+  </template>
+
+  <script type="module" src="assets/app.js"></script>
+</body>
+</html>

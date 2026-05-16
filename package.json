@@ -1,0 +1,16 @@
+{
+  "name": "graphaggregator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Federated phone_book aggregator for squig-style graph tool sites.",
+  "scripts": {
+    "validate": "node scripts/validate-cli.mjs",
+    "apply": "node scripts/apply-entry.mjs",
+    "build": "node scripts/build-aggregate.mjs",
+    "parse-issue": "node scripts/parse-issue.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

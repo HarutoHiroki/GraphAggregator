@@ -1,0 +1,60 @@
+name: Build aggregate & deploy site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'registry.json'
+      - 'config.json'
+      - 'index.html'
+      - 'assets/**'
+      - 'lib/**'
+      - 'graphAggregator.js'
+      - 'scripts/build-aggregate.mjs'
+      - '.github/workflows/build-and-deploy.yml'
+  schedule:
+    - cron: '0 6 * * *'  # daily rebuild to refresh phone_books
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Stage site contents
+        run: |
+          mkdir -p dist
+          cp -r index.html assets lib config.json registry.json CNAME .nojekyll graphAggregator.js dist/
+
+      - name: Build aggregate-index.json
+        # squigsites.json is mirrored in by default so users of the centralized
+        # solution get federated automatically; client filters via the `source`
+        # field on sites/dbs if it ever wants to differentiate.
+        run: node scripts/build-aggregate.mjs --out dist/aggregate-index.json --squigsites https://squig.link/squigsites.json
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

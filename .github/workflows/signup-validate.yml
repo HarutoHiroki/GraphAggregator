@@ -1,0 +1,97 @@
+name: Signup validate
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  validate:
+    if: contains(join(github.event.issue.labels.*.name, ','), 'signup')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Extract entry payload
+        id: parse
+        continue-on-error: true
+        env:
+          BODY: ${{ github.event.issue.body }}
+        run: |
+          printf '%s' "$BODY" > /tmp/issue-body.md
+          node scripts/parse-issue.mjs /tmp/issue-body.md > /tmp/entry.json 2> /tmp/parse-err.txt
+
+      - name: Handle parse failure
+        if: steps.parse.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUM: ${{ github.event.issue.number }}
+        run: |
+          SITE_URL=$(node -e "console.log(require('./config.json').siteUrl)")
+          PARSE_ERR=$(cat /tmp/parse-err.txt 2>/dev/null || echo "(no error output)")
+          {
+            echo "This issue doesn't contain a recognizable signup or removal payload."
+            echo ""
+            echo "Please submit through the official form at <$SITE_URL>. It generates the correct format automatically."
+            echo ""
+            echo "Closing this issue."
+            echo ""
+            echo "<details><summary>Parser detail</summary>"
+            echo ""
+            echo '```'
+            echo "$PARSE_ERR"
+            echo '```'
+            echo ""
+            echo "</details>"
+          } > /tmp/parse-fail.md
+          gh issue comment "$ISSUE_NUM" --body-file /tmp/parse-fail.md
+          gh issue edit "$ISSUE_NUM" --add-label "invalid-format" --remove-label "unconfirmed" || true
+          gh issue close "$ISSUE_NUM"
+
+      - name: Run validation
+        id: validate
+        if: steps.parse.outcome == 'success'
+        env:
+          CREATOR: ${{ github.event.issue.user.login }}
+        run: |
+          set +e
+          node scripts/validate-cli.mjs --creator "$CREATOR" /tmp/entry.json > /tmp/report.md
+          echo "exit=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Comment results
+        if: steps.parse.outcome == 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('/tmp/report.md', 'utf8');
+            const pass = '${{ steps.validate.outputs.exit }}' === '0';
+            const issue = context.issue.number;
+            await github.rest.issues.createComment({
+              ...context.repo,
+              issue_number: issue,
+              body
+            });
+            const labels = await github.rest.issues.listLabelsOnIssue({ ...context.repo, issue_number: issue });
+            const has = (n) => labels.data.some(l => l.name === n);
+            const toAdd = [];
+            const toRemove = [];
+            if (pass) {
+              if (!has('validation-passed')) toAdd.push('validation-passed');
+              if (has('validation-failed')) toRemove.push('validation-failed');
+            } else {
+              if (!has('validation-failed')) toAdd.push('validation-failed');
+              if (has('validation-passed')) toRemove.push('validation-passed');
+            }
+            if (toAdd.length) {
+              await github.rest.issues.addLabels({ ...context.repo, issue_number: issue, labels: toAdd });
+            }
+            for (const name of toRemove) {
+              try { await github.rest.issues.removeLabel({ ...context.repo, issue_number: issue, name }); } catch (_) {}
+            }

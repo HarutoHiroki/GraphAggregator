@@ -1,0 +1,158 @@
+name: Signup confirm or cancel
+
+# A 2-step confirmation, not verification. Identity is already proven at issue
+# creation (the validate workflow checks issue.user.login == entry.github).
+# This workflow lets the submitter triple-check the validation report and then
+# either commit it to the registry by commenting the confirm keyword, or abort
+# by commenting the cancel keyword.
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  decide:
+    if: |
+      github.event.issue.pull_request == null &&
+      contains(join(github.event.issue.labels.*.name, ','), 'signup')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Read config + parse entry
+        id: prep
+        env:
+          BODY: ${{ github.event.issue.body }}
+        run: |
+          printf '%s' "$BODY" > /tmp/issue-body.md
+          node scripts/parse-issue.mjs /tmp/issue-body.md > /tmp/entry.json
+          CONFIRM_KW=$(node -e "console.log(require('./config.json').confirmCommentKeyword)")
+          CANCEL_KW=$(node -e "console.log(require('./config.json').cancelCommentKeyword)")
+          GH_USER=$(node -e "console.log(require('/tmp/entry.json').github)")
+          echo "confirm_kw=$CONFIRM_KW" >> "$GITHUB_OUTPUT"
+          echo "cancel_kw=$CANCEL_KW" >> "$GITHUB_OUTPUT"
+          echo "github=$GH_USER" >> "$GITHUB_OUTPUT"
+
+      - name: Classify comment
+        id: classify
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          COMMENT_USER: ${{ github.event.comment.user.login }}
+          ISSUE_CREATOR: ${{ github.event.issue.user.login }}
+          CONFIRM_KW: ${{ steps.prep.outputs.confirm_kw }}
+          CANCEL_KW: ${{ steps.prep.outputs.cancel_kw }}
+        run: |
+          body_trim=$(printf '%s' "$COMMENT_BODY" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+          confirm=$(printf '%s' "$CONFIRM_KW" | tr '[:upper:]' '[:lower:]')
+          cancel=$(printf '%s' "$CANCEL_KW" | tr '[:upper:]' '[:lower:]')
+          cu=$(printf '%s' "$COMMENT_USER" | tr '[:upper:]' '[:lower:]')
+          ic=$(printf '%s' "$ISSUE_CREATOR" | tr '[:upper:]' '[:lower:]')
+
+          if [ "$cu" != "$ic" ]; then
+            echo "action=none" >> "$GITHUB_OUTPUT"
+          elif [ "$body_trim" = "$confirm" ]; then
+            echo "action=confirm" >> "$GITHUB_OUTPUT"
+          elif [ "$body_trim" = "$cancel" ]; then
+            echo "action=cancel" >> "$GITHUB_OUTPUT"
+          else
+            echo "action=none" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Block if already terminal
+        id: terminal
+        if: steps.classify.outputs.action != 'none'
+        env:
+          LABELS: ${{ join(github.event.issue.labels.*.name, ',') }}
+        run: |
+          case ",$LABELS," in
+            *,confirmed,*|*,cancelled,*) echo "terminal=1" >> "$GITHUB_OUTPUT" ;;
+            *) echo "terminal=0" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Cancel
+        if: steps.classify.outputs.action == 'cancel' && steps.terminal.outputs.terminal == '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUM: ${{ github.event.issue.number }}
+        run: |
+          gh issue comment "$ISSUE_NUM" --body "Submission cancelled by submitter. Closing this issue. Open a new signup to start over."
+          gh issue edit "$ISSUE_NUM" --add-label "cancelled" --remove-label "unconfirmed" || true
+          gh issue close "$ISSUE_NUM"
+
+      - name: Confirm - re-validate
+        if: steps.classify.outputs.action == 'confirm' && steps.terminal.outputs.terminal == '0'
+        id: revalidate
+        env:
+          CREATOR: ${{ github.event.issue.user.login }}
+        run: |
+          set +e
+          node scripts/validate-cli.mjs --creator "$CREATOR" /tmp/entry.json > /tmp/report.md
+          echo "exit=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Confirm - block if revalidation failed
+        if: |
+          steps.classify.outputs.action == 'confirm' &&
+          steps.terminal.outputs.terminal == '0' &&
+          steps.revalidate.outputs.exit != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUM: ${{ github.event.issue.number }}
+        run: |
+          {
+            echo "Cannot confirm - validation no longer passes. Latest report:"
+            echo ""
+            cat /tmp/report.md
+          } > /tmp/blocked.md
+          gh issue comment "$ISSUE_NUM" --body-file /tmp/blocked.md
+
+      - name: Confirm - open PR
+        if: |
+          steps.classify.outputs.action == 'confirm' &&
+          steps.terminal.outputs.terminal == '0' &&
+          steps.revalidate.outputs.exit == '0'
+        env:
+          GH_TOKEN: ${{ secrets.PR_PAT || secrets.GITHUB_TOKEN }}
+          ISSUE_NUM: ${{ github.event.issue.number }}
+          GH_USER: ${{ steps.prep.outputs.github }}
+        run: |
+          set -e
+          ACTION=$(node scripts/apply-entry.mjs /tmp/entry.json)
+          BRANCH="signup/${GH_USER,,}-$(date +%s)"
+          git config user.name "graphaggregator-bot"
+          git config user.email "graphaggregator-bot@users.noreply.github.com"
+          gh auth setup-git
+          git checkout -b "$BRANCH"
+          git add registry.json
+          git commit -m "signup($ACTION): $GH_USER (refs #$ISSUE_NUM)"
+          git push -u origin "$BRANCH"
+
+          AUTO=$(node -e "console.log(require('./config.json').autoApprove === true ? '1' : '0')")
+          gh pr create \
+            --title "signup($ACTION): $GH_USER" \
+            --body "Closes #$ISSUE_NUM via confirmed signup." \
+            --base main --head "$BRANCH" \
+            --label "signup,$ACTION"
+          if [ "$AUTO" = "1" ]; then
+            gh pr merge "$BRANCH" --squash --auto
+          fi
+
+          gh issue edit "$ISSUE_NUM" --add-label "confirmed" --remove-label "unconfirmed" || true
+
+      - name: Note terminal state if comment came after confirm/cancel
+        if: |
+          steps.classify.outputs.action != 'none' &&
+          steps.terminal.outputs.terminal == '1'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUM: ${{ github.event.issue.number }}
+          ACTION: ${{ steps.classify.outputs.action }}
+        run: |
+          gh issue comment "$ISSUE_NUM" --body "\`$ACTION\` ignored - this submission is already in a terminal state (\`confirmed\` or \`cancelled\`). Open a new signup to make changes."

@@ -1,0 +1,18 @@
+{
+  "maxDatabasesPerUser": 5,
+  "supportedRigs": [
+    { "id": "clone-711-iem",   "label": "Clone 711 (IEM coupler)",    "types": ["IEMs"] },
+    { "id": "clone-711-hp",    "label": "Clone 711 (Ear simulator)",  "types": ["IEMs", "Headphones", "Earbuds"] },
+    { "id": "gras-711",        "label": "GRAS",                       "types": ["IEMs", "Headphones", "Earbuds"] },
+    { "id": "minidsp-ears",    "label": "MiniDSP EARS / EARS Pro",    "types": ["IEMs", "Headphones", "Earbuds"] },
+    { "id": "bk-5128",         "label": "Brüel & Kjær 5128",          "types": ["IEMs", "Headphones", "Earbuds"] }
+  ],
+  "supportedDbTypes": ["IEMs", "Headphones", "Earbuds"],
+  "autoApprove": false,
+  "removeAfterUnreachableDays": 5,
+  "verifyFileName": "aggregator_verify.txt",
+  "confirmCommentKeyword": "confirm",
+  "cancelCommentKeyword": "cancel",
+  "registryRepo": "HarutoHiroki/GraphAggregator",
+  "siteUrl": "https://graphaggregator.harutohiroki.com"
+}

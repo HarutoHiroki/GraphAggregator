@@ -1,0 +1,81 @@
+name: Health check
+
+# Daily liveness scan of every registered site.
+# - Files a tracking issue on first failure.
+# - Opens an auto-remove PR after config.removeAfterUnreachableDays of failures.
+# - Closes the issue and any open auto-remove PR when the site recovers.
+
+on:
+  schedule:
+    - cron: '0 12 * * *'  # daily at 12:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: health-check
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Configure git for bot commits
+        run: |
+          git config user.name graphaggregator-bot
+          git config user.email graphaggregator-bot@users.noreply.github.com
+
+      - name: Run health check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/health-check.mjs
+
+      - name: Commit health.json if changed
+        run: |
+          if git diff --quiet health.json; then
+            echo "No health.json changes."
+          else
+            git add health.json
+            git commit -m "health: $(date -u +%Y-%m-%d) update"
+            git pull --rebase origin main || true
+            git push
+          fi
+
+      - name: Open auto-removal PRs
+        if: ${{ hashFiles('/tmp/auto-removals/list.txt') != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.PR_PAT || secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          if [ ! -s /tmp/auto-removals/list.txt ]; then
+            echo "No auto-removals queued."
+            exit 0
+          fi
+          gh auth setup-git
+
+          # Stay on main between iterations.
+          git checkout main
+
+          while IFS= read -r id; do
+            [ -z "$id" ] && continue
+            branch="auto-remove/${id}-$(date -u +%Y%m%d%H%M%S)"
+            git checkout -b "$branch"
+            node scripts/apply-entry.mjs "/tmp/auto-removals/${id}.json"
+            git add registry.json
+            git commit -m "auto-remove: ${id} (unreachable past threshold)"
+            git push -u origin "$branch"
+            gh pr create \
+              --title "auto-remove: ${id}" \
+              --body-file "/tmp/auto-removals/${id}.body.md" \
+              --label "signup,removed,auto-remove" \
+              --base main --head "$branch"
+            git checkout main
+          done < /tmp/auto-removals/list.txt

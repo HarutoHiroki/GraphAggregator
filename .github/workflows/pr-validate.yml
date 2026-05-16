@@ -1,0 +1,40 @@
+name: PR re-validate registry
+
+on:
+  pull_request:
+    paths:
+      - 'registry.json'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Validate every entry in registry.json
+        run: |
+          set -e
+          node -e "
+            const fs = require('fs');
+            const entries = JSON.parse(fs.readFileSync('registry.json','utf8'));
+            for (let i = 0; i < entries.length; i++) {
+              fs.writeFileSync('/tmp/entry-'+i+'.json', JSON.stringify(entries[i]));
+            }
+            console.log(entries.length);
+          " > /tmp/count
+          COUNT=$(cat /tmp/count)
+          FAILED=0
+          for i in $(seq 0 $((COUNT-1))); do
+            echo "::group::Entry $i"
+            if ! node scripts/validate-cli.mjs /tmp/entry-$i.json; then
+              FAILED=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $FAILED
