@@ -1,16 +1,5 @@
 // graphAggregator.js
 //
-// Full replacement for graphtool/assets/js/squigsites.js (and the modified
-// bandaid version that followed it). Drop one <script> tag into a squig-style
-// site and you get:
-//
-//   - "More squigsites" dropdown in the header, built from the aggregator.
-//   - Federated search across every registered site plus every squigsites.json
-//     entry, rendered via a virtualized list so the DOM stays small no matter
-//     how many phones match.
-//   - Delta target mods (5128 logo, automatic baseline switching).
-//   - Cachebust cookie.
-//
 // What this fixes
 // ---------------
 // The old dbExplorer built a DOM node for every brand/phone tuple in every
@@ -19,17 +8,7 @@
 // because the graph viewer had to fight that pile of DOM for layout
 // every frame.
 //
-// The previous bandaid (squigsites_modified.js) detached the dbExplorer
-// subtree while the search was empty. That fixed the empty-search case but
-// did nothing for "search has text". This client fixes both:
-//
-//   - Empty search: results region is empty. Zero DOM cost.
-//   - Filled search: only items in (or near) the viewport are in the DOM.
-//     Total active DOM never exceeds ~80 items, regardless of match count.
-//
-// All matches are still reachable by scrolling.
-//
-// Drop-in
+// Drop-in replacement for old squigsites.js
 // -------
 //   <script src="https://graphaggregator.harutohiroki.com/graphAggregator.js" defer></script>
 //

@@ -5,11 +5,15 @@
 //   node scripts/build-aggregate.mjs [--out dist/aggregate-index.json]
 //                                    [--squigsites https://squig.link/squigsites.json]
 //
-// Env flags (compression tiers):
+// Env flags (compression tiers - proof-of-concept, the default output already
+// works for the client):
 //   ELIDE_DERIVABLE_SHARE=1   Tier 2: drop `s` when it equals (brand + '_' + name).
-//   COLLAPSE_PHONES=1         Tier 3: collapse identical (brand, name) into one row
-//                             with a `m` array of measurements. Changes output shape;
-//                             consumers branch on top-level `phonesFormat`.
+//                             Saves bytes for the common case where the share
+//                             filename is just the display name with underscores.
+//   COLLAPSE_PHONES=1         Tier 3: collapse identical (brand, name) into one
+//                             row with a `m` array of measurements. Smaller list,
+//                             but changes the output shape - consoomers must
+//                             branch on top-level `phonesFormat`.
 
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -45,9 +49,11 @@ function brandIdx(name) {
   return i;
 }
 
-// Pull a usable display name out of a phone entry. Some authors use
-// name: "X" (the original convention), others wrap it as name: ["X"], and
-// the rare entry has no name at all (typo).
+// Pull a usable display name out of a phone entry. The original convention
+// was name: "X", a single string. Somewhere along the line people started
+// writing name: ["X"] - probably mirroring the file: [...] shape - and the
+// schema never said no, so now we accept both. And every so often someone
+// ships a phone with no name at all because of a typo; that one we skip.
 function extractPhoneName(p) {
   if (typeof p?.name === 'string' && p.name.length) return sanitizeOutputString(p.name);
   if (Array.isArray(p?.name) && typeof p.name[0] === 'string' && p.name[0].length) return sanitizeOutputString(p.name[0]);
@@ -86,9 +92,10 @@ function pushPhone(dbId, brand, phoneName, share) {
   phoneRows.push(row);
 }
 
-// Trims a JSON-stringified value so a log line stays readable. Replaces
-// control chars (incl. ANSI escapes / CR / LF) with '?' so a hostile name can't
-// rewrite log output.
+// One-shot preview for log lines. JSON.stringify everything (so weird shapes
+// still print something readable), kill control bytes (ANSI escapes, CR/LF -
+// nothing fun happens when a hostile brand name decides to rewrite your
+// terminal), and chop at 80 chars so the message stays on one line.
 const PREVIEW_CTRL_RE = new RegExp('[\\x00-\\x1F\\x7F-\\x9F]', 'g');
 function preview(v) {
   if (v === undefined) return '(missing)';
@@ -99,10 +106,15 @@ function preview(v) {
   return s;
 }
 
-// Walks a brand's phones array, extracts what's usable, and pushes one row
-// per phone. Skips entries that don't have at least a name and a share
-// source. Returns the skips with enough context that the caller's log
-// pinpoints which phone is malformed and why.
+// The forgiving ingester. Walks a brand's phones array, pulls out anything
+// it can recognize, and pushes one row per phone. A single broken entry
+// doesn't taint the rest of the db - we skip just that row and log why,
+// because users have hundreds of phones each and one missing `file` field
+// shouldn't blow up their whole listing.
+//
+// The skip records carry enough context (brand, index, the actual offending
+// value) that the workflow log points right at the bad row instead of leaving
+// the author guessing.
 function ingestBrand(dbId, brand) {
   let added = 0;
   const skips = [];
@@ -203,13 +215,15 @@ async function ingestRegistryEntry(entry) {
   }
 }
 
-// 1. Federated registry entries.
+// 1. Federated registry entries - the people who actually signed up here.
 for (const entry of registry) {
   await ingestRegistryEntry(entry);
 }
 
-// 2. squigsites.json
-// a separate, centralized source we mirror in for users of that solution who haven't moved over yet.
+// 2. squigsites.json - the centralized list maintained over at squig.link.
+// We mirror it so anyone still hosted on squiglink shows up in federated search
+// without them having to lift a finger or migrate. If/when they move over,
+// they sign up here and we keep the federated entry, dropping the mirror.
 if (SQUIGSITES_URL) {
   try {
     const squigSites = await fetchPhoneBook(SQUIGSITES_URL);
@@ -282,9 +296,10 @@ if (SQUIGSITES_URL) {
   }
 }
 
-// Tier 3: collapse identical (brand, name) rows into one with `m[]`.
-// Trades a normalized lookup for a flatter, smaller list. Consumers branch on
-// `phonesFormat`.
+// Tier 3 compression. If the same headphone shows up across N sites, the flat
+// format has N rows for it; the collapsed format has one row with an `m[]` of
+// N measurement references. Smaller payload, but the client has to understand
+// both shapes - hence the `phonesFormat` field at the top, so it can branch.
 let phones, phonesFormat;
 if (COLLAPSE_PHONES) {
   const groups = new Map();
