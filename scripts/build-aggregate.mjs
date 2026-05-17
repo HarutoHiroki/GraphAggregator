@@ -13,7 +13,11 @@
 
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { validatePhoneBookShape } from '../lib/validate.mjs';
+import {
+  validatePhoneBookShape,
+  validateSquigSite,
+  sanitizeOutputString,
+} from '../lib/validate.mjs';
 
 const argv = process.argv.slice(2);
 function arg(name, dflt) {
@@ -45,8 +49,8 @@ function brandIdx(name) {
 // name: "X" (the original convention), others wrap it as name: ["X"], and
 // the rare entry has no name at all (typo).
 function extractPhoneName(p) {
-  if (typeof p?.name === 'string' && p.name.length) return p.name;
-  if (Array.isArray(p?.name) && typeof p.name[0] === 'string' && p.name[0].length) return p.name[0];
+  if (typeof p?.name === 'string' && p.name.length) return sanitizeOutputString(p.name);
+  if (Array.isArray(p?.name) && typeof p.name[0] === 'string' && p.name[0].length) return sanitizeOutputString(p.name[0]);
   return null;
 }
 
@@ -55,19 +59,19 @@ function extractPhoneName(p) {
 //   - file: ["X", "Y"]    (variants, share param is the first)
 //   - hptfs: [{ files: ["X", ...] }]  (god damn it @potatosalad775 i gotta do this just for you)
 function extractShare(p) {
+  let raw = null;
   if (typeof p?.file === 'string' && p.file.length) {
-    return p.file.replace(/ /g, '_');
-  }
-  if (Array.isArray(p?.file) && typeof p.file[0] === 'string' && p.file[0].length) {
-    return p.file[0].replace(/ /g, '_');
-  }
-  if (Array.isArray(p?.hptfs) && p.hptfs.length) {
+    raw = p.file;
+  } else if (Array.isArray(p?.file) && typeof p.file[0] === 'string' && p.file[0].length) {
+    raw = p.file[0];
+  } else if (Array.isArray(p?.hptfs) && p.hptfs.length) {
     const h = p.hptfs[0];
     if (h && Array.isArray(h.files) && typeof h.files[0] === 'string' && h.files[0].length) {
-      return h.files[0].replace(/ /g, '_');
+      raw = h.files[0];
     }
   }
-  return null;
+  if (raw === null) return null;
+  return sanitizeOutputString(raw.replace(/ /g, '_'));
 }
 
 function derivedShare(brand, name) {
@@ -82,11 +86,15 @@ function pushPhone(dbId, brand, phoneName, share) {
   phoneRows.push(row);
 }
 
-// Trims a JSON-stringified value so a log line stays readable.
+// Trims a JSON-stringified value so a log line stays readable. Replaces
+// control chars (incl. ANSI escapes / CR / LF) with '?' so a hostile name can't
+// rewrite log output.
+const PREVIEW_CTRL_RE = new RegExp('[\\x00-\\x1F\\x7F-\\x9F]', 'g');
 function preview(v) {
   if (v === undefined) return '(missing)';
   let s;
   try { s = JSON.stringify(v); } catch { s = String(v); }
+  s = s.replace(PREVIEW_CTRL_RE, '?');
   if (s.length > 80) s = s.slice(0, 77) + '...';
   return s;
 }
@@ -105,13 +113,17 @@ function ingestBrand(dbId, brand) {
   if (typeof brand.name !== 'string') {
     return { added, skips: [{ where: '(brand)', reason: 'brand.name is missing or not a string', detail: preview(brand.name) }] };
   }
+  const brandName = sanitizeOutputString(brand.name, 120);
+  if (!brandName) {
+    return { added, skips: [{ where: '(brand)', reason: 'brand.name is empty after sanitization', detail: preview(brand.name) }] };
+  }
   if (!Array.isArray(brand.phones)) {
-    return { added, skips: [{ where: brand.name, reason: 'phones is not an array', detail: preview(brand.phones) }] };
+    return { added, skips: [{ where: brandName, reason: 'phones is not an array', detail: preview(brand.phones) }] };
   }
 
   for (let pi = 0; pi < brand.phones.length; pi++) {
     const phone = brand.phones[pi];
-    const where = `${brand.name}.phones[${pi}]`;
+    const where = `${brandName}.phones[${pi}]`;
     if (!phone || typeof phone !== 'object') {
       skips.push({ where, reason: 'phone is not an object', detail: preview(phone) });
       continue;
@@ -130,14 +142,14 @@ function ingestBrand(dbId, brand) {
       skips.push({ where, reason: 'missing or unusable file/hptfs', detail: 'name=' + preview(phoneName) });
       continue;
     }
-    pushPhone(dbId, brand.name, phoneName, share);
+    pushPhone(dbId, brandName, phoneName, share);
     added++;
   }
   return { added, skips };
 }
 
-async function fetchPhoneBook(url) {
-  const r = await fetch(url, { redirect: 'follow' });
+async function fetchPhoneBook(url, { timeoutMs = 20000 } = {}) {
+  const r = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(timeoutMs) });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return r.json();
 }
@@ -145,7 +157,7 @@ async function fetchPhoneBook(url) {
 async function ingestRegistryEntry(entry) {
   sites.push({
     id: entry.id,
-    name: entry.name,
+    name: sanitizeOutputString(entry.name, 100),
     url: entry.url,
     github: entry.github,
     lastVerified: new Date().toISOString()
@@ -200,8 +212,14 @@ for (const entry of registry) {
 // a separate, centralized source we mirror in for users of that solution who haven't moved over yet.
 if (SQUIGSITES_URL) {
   try {
-    const squigSites = await (await fetch(SQUIGSITES_URL)).json();
+    const squigSites = await fetchPhoneBook(SQUIGSITES_URL);
+    if (!Array.isArray(squigSites)) throw new Error('squigsites.json root is not an array');
     for (const site of squigSites) {
+      const reason = validateSquigSite(site);
+      if (reason) {
+        console.error(`Skipping squigsites entry: ${reason} | ${preview(site)}`);
+        continue;
+      }
       const rootDomain = site.urlType === 'root';
       const subDomain = site.urlType === 'subdomain';
       const altDomain = site.urlType === 'altDomain';
@@ -210,9 +228,10 @@ if (SQUIGSITES_URL) {
         : subDomain ? `https://${site.username}.squig.link`
         : `https://squig.link/lab/${site.username}`;
 
+      const safeName = sanitizeOutputString(site.name, 100);
       sites.push({
         id: `squigsites:${site.username}`,
-        name: site.name,
+        name: safeName,
         url: baseUrl,
         lastVerified: new Date().toISOString(),
         source: 'squigsites'
