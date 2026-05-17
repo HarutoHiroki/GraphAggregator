@@ -157,3 +157,6 @@ If you don't create these in advance, GitHub auto-creates them on first use with
    - Name: `PR_PAT`
    - Value: paste the token
    - Click **Add secret**.
+
+## Closing statement
+Hi there, Haruto here. I'm the sole maintainer of this project, and I built it to scratch my own itch for a federated graphtool ecosystem and to solve a certain lagging issues with the current squiglink implementation. I hope this can be a useful reference implementation for anyone else who wants to build similar federation layers for their own projects. That said, this is a side project that I maintain in my spare time, so please be patient if you open an issue or submit a PR. I'll do my best to respond in a timely manner, but I can't make any guarantees. Thanks for your understanding and interest!
