@@ -92,6 +92,12 @@ function pushPhone(dbId, brand, phoneName, share) {
   phoneRows.push(row);
 }
 
+// "/" -> "root", "/headphones/" -> "headphones".
+function folderSlug(folder) {
+  const s = String(folder || '').replace(/^\/+|\/+$/g, '').replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+  return s || 'root';
+}
+
 // One-shot preview for log lines. JSON.stringify everything (so weird shapes
 // still print something readable), kill control bytes (ANSI escapes, CR/LF -
 // nothing fun happens when a hostile brand name decides to rewrite your
@@ -228,6 +234,16 @@ if (SQUIGSITES_URL) {
   try {
     const squigSites = await fetchPhoneBook(SQUIGSITES_URL);
     if (!Array.isArray(squigSites)) throw new Error('squigsites.json root is not an array');
+
+    // Usually one entry per username. Earphones Archive lists itself twice
+    // instead - once for the IEM folder, once for /headphones/ - so both
+    // entries would land on the same site id, and their dbs (same rig, so same
+    // type) on the same db id. The folder is what actually tells them apart, so
+    // for a duplicated username we fold it into the id. Everyone else keeps the
+    // plain squigsites:<username> id they've always had.
+    const usernameCount = new Map();
+    for (const s of squigSites) usernameCount.set(s.username, (usernameCount.get(s.username) || 0) + 1);
+
     for (const site of squigSites) {
       const reason = validateSquigSite(site);
       if (reason) {
@@ -243,8 +259,12 @@ if (SQUIGSITES_URL) {
         : `https://squig.link/lab/${site.username}`;
 
       const safeName = sanitizeOutputString(site.name, 100);
+      const folderSeg = usernameCount.get(site.username) > 1
+        ? folderSlug(site.dbs[0].folder) + ':'
+        : '';
+      const siteId = `squigsites:${folderSeg}${site.username}`;
       sites.push({
-        id: `squigsites:${site.username}`,
+        id: siteId,
         name: safeName,
         url: baseUrl,
         lastVerified: new Date().toISOString(),
@@ -254,7 +274,7 @@ if (SQUIGSITES_URL) {
       for (const db of site.dbs) {
         const dbUrl = baseUrl + db.folder;
         const phoneBookUrl = dbUrl + 'data/phone_book.json';
-        const dbId = `squigsites:${site.username}:${db.type.toLowerCase()}`;
+        const dbId = `${siteId}:${db.type.toLowerCase()}`;
         let phoneBook;
         try {
           phoneBook = await fetchPhoneBook(phoneBookUrl);
@@ -271,7 +291,7 @@ if (SQUIGSITES_URL) {
 
         dbs.push({
           id: dbId,
-          siteId: `squigsites:${site.username}`,
+          siteId,
           type: db.type,
           url: dbUrl,
           phoneBookUrl,
