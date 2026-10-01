@@ -1,16 +1,5 @@
 {
-  "lastCheckAt": "2026-09-30T17:12:33.568Z",
+  "lastCheckAt": "2026-10-01T17:41:50.949Z",
   "removeAfterDays": 5,
-  "entries": {
-    "harutohiroki": {
-      "firstFailureAt": "2026-09-30T17:12:33.568Z",
-      "lastFailureAt": "2026-09-30T17:12:33.568Z",
-      "daysFailing": 0,
-      "failingUrls": [
-        "https://graphtool.harutohiroki.com/aggregator_verify.txt",
-        "https://graphtool.harutohiroki.com/phone_book.json"
-      ],
-      "issueNumber": 5
-    }
-  }
+  "entries": {}
 }
